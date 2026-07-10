@@ -1,0 +1,4 @@
+{
+  "base_url": "https://app.farmce.com",
+  "bearer_token": "YOUR_BEARER_TOKEN_HERE"
+}
