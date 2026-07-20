@@ -1,17 +1,22 @@
 ---
 name: awesome-farmce-skill
-description: Manage Farmce cloud Android devices for AI agent automation. Use when asked to start Android sessions, control profiles, manage proxies, take screenshots, or automate anything on a cloud phone via Farmce.
+description: Beta skill for Farmce cloud Android via REST API + WebRTC connectUrl (no ADB). Use when asked to list/start/stop profiles, manage proxies, or take screenshots. Prefer documented scenarios; ask when unclear; do not invent extra steps.
 ---
 
 # Farmce Cloud Android Skill
 
-> ⚠️ **IMPORTANT**: This skill controls real cloud Android devices that consume billeted time from your Farmce subscription. Always stop sessions when done.
+> ⚠️ **BETA**: For AI agents against real Farmce devices. Prefer `examples/`. Always stop sessions when done — they consume billed minutes. Do not run unattended until you have validated the flows yourself.
 
 **Configuration**: `assets/config.json` (auto-loads base URL and Bearer token)
 
 ---
 
 > 🔒 **Security Notice**
+>
+> **Scope (API only):**
+> - Supported: Farmce REST API, session `connectUrl` (WebRTC player), REST screenshots, proxies
+> - **Not supported:** local `adb`, device serial workflows, on-device UI automation libraries, shell-on-device, built-in social RPA packs
+> - Do not invent ADB/serial steps — they are outside this skill
 >
 > **Credential Handling:**
 > - Your Bearer token is stored in `assets/config.json`
@@ -21,8 +26,26 @@ description: Manage Farmce cloud Android devices for AI agent automation. Use wh
 >
 > **Autonomous Execution:**
 > - Scripts call the Farmce REST API and can start/stop real cloud devices
+> - Validate behavior before leaving the agent unsupervised
 > - **Always confirm destructive operations** (stop all sessions, delete profiles) with the user
-> - Sessions auto-stop after ~45 minutes of inactivity on the server side
+> - **Never call `delete_profile` directly** — use `scripts/delete_helper.py` (interactive YES)
+> - Sessions auto-stop after ~10 minutes without player heartbeat (server-side)
+
+---
+
+## Agent Execution Rules (MANDATORY)
+
+**Critical directives for AI agents:**
+
+1. **Do only what the user asked.** Do not create profiles, start sessions, attach proxies, or stop devices "just in case" or as a side quest.
+2. **Ask when unclear.** If profile ID/name, target device, or next step is ambiguous — ask the user. Do not guess or invent parameters.
+3. **No local device tooling.** Only REST via `FarmceClient`, `session_helper`, `screenshot`, and screen control via `connectUrl`. Stay within the endpoint whitelist.
+4. **Confirm before costly or destructive actions.** Before `run` (billed minutes), `stop all`, or delete — confirm the exact profile/action with the user unless they already gave an explicit instruction for that ID.
+5. **Prefer documented scenarios.** Follow `examples/start-session.md`, `examples/proxy-setup.md`, and the Core Workflow below. Do not invent multi-step automations beyond the API surface.
+6. **No auto-login / no “logical” setup.** Do not log into apps, change system settings, install apps, or accept dialogs unless the user explicitly asked. If a login/onboarding wall appears — stop and ask. See `references/screen_control.md`.
+7. **Stop what you start.** If you started a session, stop it when the task is done (or remind the user). Wrap work in `try/finally` when scripting.
+8. **Deletion only via `delete_helper.py`.** Never bypass confirmation; never auto-fill `YES`.
+9. **Credentials stay local.** Never print full Bearer tokens or proxy passwords; mask in logs/output.
 
 ---
 
@@ -198,7 +221,7 @@ Always stop sessions when the task is done to preserve your quota.
 Profile → POST .../run → status: "starting" → status: "running" (connectUrl ready) → POST .../stop
 ```
 
-- Sessions auto-stop after ~45 minutes without heartbeat (server-side)
+- Sessions auto-stop after ~10 minutes without player heartbeat (server-side). Keep `connectUrl` open so the player can ping; clicks alone do not count as heartbeat.
 - Quota is consumed from the time the session starts until it stops
 - Maximum concurrent sessions depend on your plan
 
@@ -245,10 +268,32 @@ See `examples/proxy-setup.md` for more.
 | Mechanism | Description |
 |-----------|-------------|
 | **Quota check** | Doctor checks remaining minutes before reporting readiness |
-| **Session TTL** | Server auto-stops sessions idle for 45 minutes |
-| **Endpoint boundary** | `FarmceClient.call()` uses a whitelist of allowed endpoints |
+| **Session TTL** | Server auto-stops the phone ~10 minutes after the last player heartbeat |
+| **Endpoint boundary** | `FarmceClient` uses a whitelist of allowed endpoints |
 | **Credential safety** | `assets/config.json` in `.gitignore`; token not visible in API logs |
 | **Stop on exit** | Wrap tasks with `try/finally: client.stop_session(profile_id)` |
+| **Deletion safeguards** | `delete_helper.py`: TTY required, re-type profile ID + `YES`, delay; `delete_profile(confirmed=False)` is blocked |
+| **Structured errors** | `scripts/error_codes.py` — codes + recommendations for agents |
+
+---
+
+## Deletion Workflow (MANDATORY)
+
+AI agents **MUST NOT** call `client.delete_profile()` directly. Follow this sequence:
+
+1. List profiles and show ID / name / status to the user  
+2. Ask which ID to delete and require an explicit reply containing the ID and `YES`  
+3. **STOP AND WAIT** for the user — do not auto-fill confirmation  
+4. Instruct the user (or run in their interactive terminal):
+
+```bash
+python scripts/delete_helper.py --profile-id <id>
+```
+
+The script re-asks for the ID, requires typing `YES`, waits 3 seconds, then deletes.  
+Profile must be **stopped** first (API returns 409 `PROFILE_BUSY` otherwise).
+
+> If you cannot wait for interactive confirmation, do not delete. Tell the user to run `delete_helper.py` manually.
 
 ---
 
@@ -256,6 +301,7 @@ See `examples/proxy-setup.md` for more.
 
 - `references/screen_control.md` — how to control the Android screen via connectUrl
 - `references/error_codes.md` — error catalog with remediation steps
+- `scripts/error_codes.py` — structured codes used by scripts (`classify_error`, `classify_http_error`)
 - `references/best_practices.md` — cost-saving and reliability tips
 - `references/profiles_and_devices.md` — entities, model, and lifecycle
 - Live OpenAPI spec: `https://app.farmce.com/api/openapi.json`
@@ -267,12 +313,15 @@ See `examples/proxy-setup.md` for more.
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| 401 | Invalid/expired token | Run `init_config.py` again |
-| 403 `no_tariff` | No active subscription | Subscribe at app.farmce.com |
-| 403 `quota_exhausted` | No minutes remaining | Upgrade plan or wait for reset |
-| 409 `max_concurrent` | Too many active sessions | Stop another session first |
-| 409 `profile_limit` | Profile count at plan max | Delete unused profiles |
-| 502 | Android cloud start failed | Retry; if persistent, check server status |
-| 501 `screenshot_not_supported` | Screenshot unavailable in this mode | Use connectUrl player instead |
+| 401 / `AUTH_UNAUTHORIZED` | Invalid/expired token | Run `init_config.py` again |
+| 403 `NO_TARIFF` | No active subscription | Subscribe at app.farmce.com |
+| 403 `QUOTA_EXHAUSTED` | No minutes remaining | Upgrade plan or wait for reset |
+| 409 `MAX_CONCURRENT_SESSIONS` | Too many active sessions | Stop another session first |
+| 409 `PROFILE_LIMIT_REACHED` | Profile count at plan max | Delete via `delete_helper.py` |
+| 409 `PROFILE_BUSY` | Delete while session active | Stop session first |
+| `SESSION_START_TIMEOUT` | Boot took too long | Retry; check doctor |
+| 502 / `UPSTREAM_UNAVAILABLE` | Android cloud start failed | Retry; if persistent, check server status |
+| 501 `SCREENSHOT_NOT_SUPPORTED` | Screenshot unavailable in this mode | Use connectUrl player instead |
+| `DELETE_REQUIRES_TTY` | Delete without interactive terminal | Run `delete_helper.py` manually |
 
-See `references/error_codes.md` for the full catalog.
+See `references/error_codes.md` and `scripts/error_codes.py` for the full catalog.

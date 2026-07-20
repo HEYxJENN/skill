@@ -26,6 +26,7 @@ if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
 from scripts.farmce_client import FarmceClient
+from scripts.error_codes import classify_error
 
 
 def take_screenshot(
@@ -49,7 +50,7 @@ def take_screenshot(
     try:
         resp = c.take_screenshot(profile_id)
     except Exception as e:
-        _print_error(e, profile_id)
+        classify_error(e).print()
         return None
 
     image_b64 = resp.get("imageBase64")
@@ -77,32 +78,6 @@ def take_screenshot(
             print(f"⚠️ Could not save image: {e}")
 
     return resp
-
-
-def _print_error(e: Exception, profile_id: str) -> None:
-    resp = getattr(e, "response", None)
-    if resp is None:
-        print(f"❌ Screenshot failed: {e}")
-        return
-    code = resp.status_code
-    try:
-        body = resp.json()
-    except Exception:
-        body = resp.text
-    if code == 401:
-        print("❌ 401 Unauthorized — run: python scripts/init_config.py")
-    elif code == 404:
-        print(f"❌ 404 Profile '{profile_id}' not found.")
-    elif code == 409:
-        print(f"❌ 409 No active session for profile '{profile_id}'. Start one first.")
-    elif code == 501:
-        print("❌ 501 Screenshots are not supported in the current Android cloud mode.")
-        print("   Use the connectUrl WebRTC player to view the screen instead.")
-        print("   See: references/screen_control.md")
-    elif code == 502:
-        print(f"❌ 502 Screenshot capture failed upstream: {body}")
-    else:
-        print(f"❌ HTTP {code}: {body}")
 
 
 if __name__ == "__main__":

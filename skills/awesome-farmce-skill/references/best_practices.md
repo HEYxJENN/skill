@@ -3,7 +3,7 @@
 ## Cost management
 
 **Always stop sessions when done.**
-Sessions consume minutes from your plan from the moment they start until stopped. The server auto-stops idle sessions after ~45 minutes, but don't rely on this.
+Sessions consume minutes from your plan from the moment they start until stopped. The server auto-stops sessions ~10 minutes after the last player heartbeat — always call `stop` when done; don't rely on the sweeper.
 
 ```python
 try:

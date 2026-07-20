@@ -32,6 +32,7 @@ ALLOWED_ENDPOINTS = {
     "GET /api/workspace/profiles",
     "POST /api/workspace/profiles",
     "PATCH /api/workspace/profiles/{id}",
+    "DELETE /api/workspace/profiles/{id}",
     # Sessions
     "POST /api/workspace/profiles/{id}/run",
     "GET /api/workspace/profiles/{id}/status",
@@ -100,6 +101,18 @@ class FarmceClient:
         resp.raise_for_status()
         return resp.json()
 
+    def delete(self, path: str, path_template: str = None, timeout: int = 20) -> dict:
+        self._check_endpoint("DELETE", path_template or path)
+        resp = requests.delete(
+            f"{self.base_url}{path}",
+            headers=self._headers(),
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        if resp.content:
+            return resp.json()
+        return {"ok": True}
+
     # ── Convenience methods ───────────────────────────────────────────────────
 
     def get_me(self) -> dict:
@@ -149,6 +162,21 @@ class FarmceClient:
             f"/api/workspace/profiles/{profile_id}",
             path_template="/api/workspace/profiles/{id}",
             body=body,
+        )
+
+    def delete_profile(self, profile_id: str, *, confirmed: bool = False) -> dict:
+        """Delete a profile. Agents MUST use scripts/delete_helper.py instead.
+
+        Pass confirmed=True only after interactive YES confirmation.
+        """
+        if not confirmed:
+            raise FarmceForbiddenError(
+                "Profile delete blocked without confirmation. "
+                "Run: python scripts/delete_helper.py"
+            )
+        return self.delete(
+            f"/api/workspace/profiles/{profile_id}",
+            path_template="/api/workspace/profiles/{id}",
         )
 
     def run_session(self, profile_id: str) -> dict:

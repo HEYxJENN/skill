@@ -1,7 +1,7 @@
 # Screen Control — WebRTC connectUrl Workflow
 
-Farmce uses a **WebRTC player** for Android screen control, not ADB or uiautomator2.
-When a session is running, you get a `connectUrl` — open it in a browser to see and interact with the Android screen.
+Farmce controls the Android screen through a **WebRTC player** at `connectUrl`.
+When a session is running, open that URL in a browser to see and interact with the device.
 
 ---
 
@@ -58,6 +58,30 @@ The player supports these input methods:
 
 ---
 
+## Agent rules for screen control (MANDATORY)
+
+Do **only** the UI steps the user asked for. Do not “helpfully” complete setup on your own.
+
+**Forbidden unless the user explicitly requested it:**
+- Auto-login to apps (Google, social apps, stores, email, etc.)
+- Entering or requesting passwords / 2FA / recovery codes
+- Changing system settings (language, locale, timezone, developer options, permissions defaults)
+- Installing / updating apps “because it looks needed”
+- Accepting terms, cookies, or permission dialogs beyond what the task requires
+- Creating accounts or linking services
+- Filling forms with invented data
+
+If a login wall, onboarding, or settings screen appears and the user did not ask to handle it — **stop and ask**. Describe what you see; wait for instructions.
+
+Visual automation loop (when the user *did* ask for UI steps):
+
+1. Screenshot → vision → identify target  
+2. Click / type via the player  
+3. Screenshot again to verify  
+4. After ~3 failed attempts, report the blocker with a screenshot — do not invent a workaround
+
+---
+
 ## Screenshot
 
 For reading the screen state without keeping the player open, use the screenshot REST endpoint:
@@ -89,7 +113,7 @@ python scripts/screenshot.py --profile-id <id> --output /tmp/screen.png
 
 ## Agent workflow for UI automation
 
-Since there is no direct DOM access, the recommended approach for AI agents is:
+Only when the user explicitly asked for screen interaction:
 
 ### 1. Start session and open player
 ```python
@@ -107,28 +131,28 @@ result = take_screenshot(profile_id)
 ### 3. Interact through the player
 Use browser-use tool to:
 - Click on the element's position in the player viewport
-- Type text into focused fields
-- Press Back/Home buttons in the toolbar
+- Type text into focused fields **only if the user provided the text / asked to type**
+- Press Back/Home buttons in the toolbar when needed for the stated task
 
 ### 4. Verify action succeeded
 Take another screenshot and confirm the expected screen state.
 
 ### 5. Retry on failure
-If the expected state is not reached after 3 attempts (e.g. element not found), log the screenshot and report the blocker.
+If the expected state is not reached after 3 attempts (e.g. element not found), log the screenshot and report the blocker. Do not invent logins, settings changes, or side quests.
 
 ---
 
 ## Session lifecycle notes
 
 - Sessions are **shared-state**: after stopping, the Android state (apps, login sessions, files) is preserved for the next run.
-- Sessions auto-stop after ~45 minutes of server-side inactivity.
+- Sessions auto-stop ~10 minutes after the last player heartbeat (the `connectUrl` page pings every ~30s while open). Without an open player, REST-only work can still lose the session.
 - Always call `client.stop_session(profile_id)` when your automation task is done to preserve quota.
 
 ---
 
 ## Proxy and geolocation
 
-For geo-specific content (TikTok regional feed, Instagram location, etc.), attach a proxy before starting the session:
+Attach a proxy **only if the user asked**. Example:
 
 ```python
 client.update_profile(profile_id, proxy={
@@ -143,18 +167,3 @@ client.update_profile(profile_id, proxy={
 ```
 
 The proxy is applied at the Android network level for the duration of the session.
-
----
-
-## Comparison with ADB-based approaches
-
-| Feature | Farmce (connectUrl) | ADB / uiautomator2 |
-|---------|--------------------|--------------------|
-| Connection | HTTPS / WebRTC | ADB over TCP |
-| Screen view | Browser / video stream | Screenshots + XML hierarchy |
-| Element targeting | Visual (click position) | resourceId, text, xpath |
-| Input | Browser events → WebRTC | ADB input commands |
-| Dependencies | None (browser-use) | adb, uiautomator2, glogin |
-| State persistence | Server-side (profile) | Device filesystem |
-
-For visual automation the approach is: **screenshot → vision model → click coordinates**.

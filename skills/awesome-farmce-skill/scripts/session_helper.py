@@ -26,6 +26,7 @@ if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
 from scripts.farmce_client import FarmceClient
+from scripts.error_codes import ErrorCode, StructuredError, classify_error
 
 POLL_INTERVAL_S = 5
 STARTUP_TIMEOUT_S = 120
@@ -50,7 +51,7 @@ def run_session(
     try:
         run_resp = c.run_session(profile_id)
     except Exception as e:
-        _print_start_error(e)
+        classify_error(e).print()
         return None
 
     status = run_resp.get("data", {}).get("status", "")
@@ -89,10 +90,16 @@ def run_session(
             return {"profileId": profile_id, "sessionId": session_id, "connectUrl": connect_url}
 
         if current_status == "error":
-            print(f"\n❌ Session entered error state.")
+            StructuredError(
+                ErrorCode.SESSION_START_FAILED,
+                message="Session entered error state",
+            ).print()
             return None
 
-    print(f"\n❌ Timeout after {timeout_s}s — session did not reach 'running'.")
+    StructuredError(
+        ErrorCode.SESSION_START_TIMEOUT,
+        message=f"Timeout after {timeout_s}s — session did not reach 'running'",
+    ).print()
     return None
 
 
@@ -109,10 +116,10 @@ def stop_session(profile_id: str, client: FarmceClient = None) -> bool:
         if resp.get("ok"):
             print("✅ Session stopped.")
             return True
-        print(f"⚠️ Stop response: {resp}")
+        StructuredError(ErrorCode.SESSION_STOP_FAILED, message=str(resp)).print()
         return False
     except Exception as e:
-        print(f"❌ Stop failed: {e}")
+        classify_error(e).print()
         return False
 
 
@@ -132,36 +139,13 @@ def get_session_status(profile_id: str, client: FarmceClient = None) -> Optional
             "sessionId": (resp.get("android") or {}).get("sessionId", ""),
         }
     except Exception as e:
-        print(f"❌ Status check failed: {e}")
+        classify_error(e).print()
         return None
 
 
 def _print_start_error(e: Exception) -> None:
-    resp = getattr(e, "response", None)
-    if resp is None:
-        print(f"❌ Start failed: {e}")
-        return
-    code = resp.status_code
-    try:
-        body = resp.json()
-    except Exception:
-        body = resp.text
-    if code == 401:
-        print("❌ 401 Unauthorized — run: python scripts/init_config.py")
-    elif code == 403:
-        error_key = body.get("error", "") if isinstance(body, dict) else ""
-        if "quota" in error_key:
-            print("❌ 403 Quota exhausted — upgrade your plan at https://app.farmce.com")
-        elif "tariff" in error_key or "no_plan" in error_key:
-            print("❌ 403 No active tariff — subscribe at https://app.farmce.com")
-        else:
-            print(f"❌ 403 Forbidden: {body}")
-    elif code == 404:
-        print(f"❌ 404 Profile '{e.response.url}' not found.")
-    elif code == 409:
-        print(f"❌ 409 Conflict: {body} — stop another session first.")
-    else:
-        print(f"❌ HTTP {code}: {body}")
+    """Deprecated: use classify_error(e).print()."""
+    classify_error(e).print()
 
 
 if __name__ == "__main__":

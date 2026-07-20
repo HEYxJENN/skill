@@ -2,19 +2,26 @@
 
 > 🤖 Farmce cloud Android API automation for AI agents
 
-[![Status](https://img.shields.io/badge/Status-MVP-blue.svg)]()
+[![Status](https://img.shields.io/badge/Status-Beta-orange.svg)]()
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 ---
 
-> ⚠️ **Note:** This skill controls real cloud Android devices that consume time from your Farmce subscription. Sessions cost minutes from your plan — always stop them when done.
+> ⚠️ **WARNING: BETA**
+>
+> This skill drives real Farmce cloud devices via an AI agent. It is **beta** — use carefully, prefer the flows in `examples/`, and confirm costly or destructive steps.
+>
+> - Sessions bill subscription minutes; **always stop** when finished.
+> - API and session behavior may change; expect occasional manual fixes.
+> - Control path is **REST + WebRTC `connectUrl` + screenshots** only (no local ADB / device shell).
 
 ---
 
 ## Overview
 
-Farmce Skill provides automation for the [Farmce](https://app.farmce.com) cloud Android service, enabling AI agents to manage persistent Android profiles, start WebRTC sessions, take screenshots, configure proxies, and interact with Android apps.
+Farmce Skill provides automation for the [Farmce](https://app.farmce.com) cloud Android service, enabling AI agents to manage persistent Android profiles, start WebRTC sessions, take screenshots, configure proxies, and interact with Android apps via the API.
 
-Unlike ADB-based tools, Farmce exposes a **REST API + WebRTC player**. Screen control happens through the `connectUrl` returned when a session starts — agents open this URL in a browser-use tool or any WebRTC client.
+Farmce exposes a **REST API + WebRTC player** (not local ADB). Screen control uses the `connectUrl` from a started session — open it in a browser-use tool or any WebRTC client. Do not assume `adb`, device serials, or on-device UI automation libraries.
 
 ---
 
@@ -36,7 +43,7 @@ Unlike ADB-based tools, Farmce exposes a **REST API + WebRTC player**. Screen co
 pip install -r requirements.txt
 ```
 
-No ADB. No `uiautomator2`. No local Android tooling required.
+No local ADB or on-device UI automation packages required.
 
 ---
 
@@ -118,11 +125,23 @@ Once configured, tell your AI agent what to do:
 "Stop all running sessions"
 ```
 
-The agent handles:
-- Checking limits before starting
-- Polling session status until ready
-- Returning the connectUrl for screen control
-- Error classification (quota, auth, plan limit)
+The agent should:
+- Do **only** what you asked — no extra create/start/delete
+- Ask if the profile ID or action is ambiguous
+- Check limits before starting
+- Poll session status until ready and return `connectUrl`
+- Classify errors (quota, auth, plan limit)
+- Stop sessions it started when the task is done
+
+---
+
+## Important Notes
+
+1. **Beta:** Treat this as experimental. Prefer scenarios from `examples/` over free-form automation.
+2. **API only:** No local ADB or on-device shell. Control is REST + WebRTC `connectUrl` + screenshots.
+3. **Credentials:** Loaded from `assets/config.json`. Do not paste Bearer tokens into chat.
+4. **Deletion:** Use `scripts/delete_helper.py` with interactive `YES` — agents must not bypass confirmation.
+5. **Cost:** Running sessions bill minutes. Always stop when finished.
 
 ---
 
@@ -143,7 +162,9 @@ awesome-farmce-skill/
 │   ├── init_config.py         # Magic link → save Bearer token
 │   ├── doctor.py              # Diagnose auth, limits, API reachability
 │   ├── session_helper.py      # run / poll status / stop → connectUrl
-│   └── screenshot.py          # Capture screenshot via REST
+│   ├── screenshot.py          # Capture screenshot via REST
+│   ├── error_codes.py         # Structured error codes for agents
+│   └── delete_helper.py       # Interactive profile delete (YES confirm)
 ├── references/
 │   ├── screen_control.md      # WebRTC connectUrl workflow
 │   ├── error_codes.md         # All error codes and remediation

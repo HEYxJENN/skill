@@ -20,6 +20,8 @@ _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
+from scripts.error_codes import ErrorCode
+
 
 class DiagStatus:
     OK = "OK"
@@ -58,7 +60,7 @@ def check_python_deps() -> List[DiagResult]:
         results.append(DiagResult(
             "requests", DiagStatus.FAIL,
             "requests not installed. Run: pip install requests",
-            "ENV_DEPENDENCY_MISSING",
+            ErrorCode.ENV_DEPENDENCY_MISSING,
         ))
     return results
 
@@ -74,11 +76,11 @@ def check_config() -> List[DiagResult]:
             f"Loaded. base_url={base_url}, token={token_preview}",
         )]
     except FileNotFoundError as e:
-        return [DiagResult("config", DiagStatus.FAIL, str(e), "CONFIG_MISSING")]
+        return [DiagResult("config", DiagStatus.FAIL, str(e), ErrorCode.CONFIG_MISSING)]
     except ValueError as e:
-        return [DiagResult("config", DiagStatus.FAIL, str(e), "CONFIG_INVALID")]
+        return [DiagResult("config", DiagStatus.FAIL, str(e), ErrorCode.CONFIG_INVALID)]
     except Exception as e:
-        return [DiagResult("config", DiagStatus.FAIL, f"Unexpected error: {e}", "CONFIG_ERROR")]
+        return [DiagResult("config", DiagStatus.FAIL, f"Unexpected error: {e}", ErrorCode.UNEXPECTED_ERROR)]
 
 
 def check_network(base_url: str) -> List[DiagResult]:
@@ -97,11 +99,23 @@ def check_network(base_url: str) -> List[DiagResult]:
             f"Server responded with HTTP {resp.status_code} in {elapsed:.2f}s",
         )]
     except req.exceptions.Timeout:
-        return [DiagResult("network", DiagStatus.FAIL, f"Timeout connecting to {base_url}", "NETWORK_TIMEOUT")]
+        return [DiagResult(
+            "network", DiagStatus.FAIL,
+            f"Timeout connecting to {base_url}",
+            ErrorCode.NETWORK_TIMEOUT,
+        )]
     except req.exceptions.ConnectionError as e:
-        return [DiagResult("network", DiagStatus.FAIL, f"Cannot connect to {base_url}: {e}", "NETWORK_DNS_FAILED")]
+        return [DiagResult(
+            "network", DiagStatus.FAIL,
+            f"Cannot connect to {base_url}: {e}",
+            ErrorCode.NETWORK_UNREACHABLE,
+        )]
     except Exception as e:
-        return [DiagResult("network", DiagStatus.FAIL, f"Network error: {e}", "NETWORK_ERROR")]
+        return [DiagResult(
+            "network", DiagStatus.FAIL,
+            f"Network error: {e}",
+            ErrorCode.NETWORK_UNREACHABLE,
+        )]
 
 
 def check_auth(client) -> List[DiagResult]:
@@ -116,9 +130,13 @@ def check_auth(client) -> List[DiagResult]:
             return [DiagResult(
                 "auth", DiagStatus.FAIL,
                 "401 Unauthorized — token is invalid or expired. Run: python scripts/init_config.py",
-                "AUTH_INVALID",
+                ErrorCode.AUTH_UNAUTHORIZED,
             )]
-        return [DiagResult("auth", DiagStatus.FAIL, f"Auth check failed: {e}", "AUTH_ERROR")]
+        return [DiagResult(
+            "auth", DiagStatus.FAIL,
+            f"Auth check failed: {e}",
+            ErrorCode.AUTH_UNAUTHORIZED,
+        )]
 
 
 def check_limits(client) -> List[DiagResult]:
@@ -130,7 +148,7 @@ def check_limits(client) -> List[DiagResult]:
             results.append(DiagResult(
                 "limits", DiagStatus.WARN,
                 "No active tariff. Subscribe at https://app.farmce.com to start sessions.",
-                "NO_TARIFF",
+                ErrorCode.NO_TARIFF,
             ))
             return results
 
@@ -142,7 +160,7 @@ def check_limits(client) -> List[DiagResult]:
             results.append(DiagResult(
                 "quota", DiagStatus.WARN,
                 f"Quota exhausted: 0 minutes remaining. Upgrade plan to continue.",
-                "QUOTA_EXHAUSTED",
+                ErrorCode.QUOTA_EXHAUSTED,
             ))
         else:
             remaining_str = f"{minutes} min remaining" if minutes is not None else "unlimited"

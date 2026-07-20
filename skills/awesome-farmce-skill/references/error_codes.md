@@ -97,9 +97,39 @@ elif data.get("minutesRemaining", 1) <= 0:
 | `FileNotFoundError` in `utils.py` | `assets/config.json` missing | Run `python scripts/init_config.py` |
 | `ValueError: bearer_token is not set` | Token placeholder in config | Run `python scripts/init_config.py` |
 | `FarmceForbiddenError` (endpoint whitelist) | Called an undocumented endpoint | Only use endpoints listed in `farmce_client.py`; check SKILL.md |
+| `FarmceForbiddenError` (delete) | `delete_profile` without `confirmed=True` | Use `python scripts/delete_helper.py` |
 | `requests.HTTPError` | HTTP error from API | Check status code; see table above |
 | `requests.ConnectionError` | Cannot reach backend | Check network; verify `base_url` in `assets/config.json` |
 | `requests.Timeout` | Backend too slow | Retry; check `doctor.py` for network latency |
+
+---
+
+## Structured script codes (`scripts/error_codes.py`)
+
+Scripts emit machine-readable codes via `classify_error()` / `classify_http_error()`:
+
+| Code | When | Fix |
+|------|------|-----|
+| `ENV_DEPENDENCY_MISSING` | `requests` (etc.) not installed | `pip install -r requirements.txt` |
+| `CONFIG_MISSING` / `CONFIG_INVALID` | No or empty token | `init_config.py` |
+| `NETWORK_UNREACHABLE` / `NETWORK_TIMEOUT` | API unreachable | Check network / `base_url` |
+| `AUTH_UNAUTHORIZED` | 401 | `init_config.py` |
+| `NO_TARIFF` / `QUOTA_EXHAUSTED` | Billing | Subscribe / upgrade |
+| `SESSION_START_TIMEOUT` / `SESSION_START_FAILED` | Boot failed | Retry; doctor |
+| `PROFILE_BUSY` | Delete while running | Stop session first |
+| `DELETE_REQUIRES_TTY` | Non-interactive delete | Run helper in a real terminal |
+| `DELETE_NOT_CONFIRMED` / `DELETE_CANCELLED` | User did not confirm | Re-run and type ID + `YES` |
+| `ENDPOINT_FORBIDDEN` | Whitelist / unconfirmed delete | Use documented helpers |
+
+```python
+from scripts.error_codes import classify_error
+
+try:
+    client.run_session(profile_id)
+except Exception as e:
+    err = classify_error(e)
+    print(err.to_dict())  # { code, message, recommendation, severity, ... }
+```
 
 ---
 
@@ -110,6 +140,7 @@ elif data.get("minutesRemaining", 1) <= 0:
 403 no_tariff            → subscribe at https://app.farmce.com
 403 quota_exhausted      → upgrade plan
 409 max_concurrent       → client.stop_session(other_profile_id)
+409 profile busy/delete  → stop session, then delete_helper.py
 404 profile not found    → client.list_profiles() to get valid IDs
 501 screenshot           → use connectUrl player (see references/screen_control.md)
 502 any                  → wait 30s and retry
